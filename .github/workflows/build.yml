@@ -18,7 +18,7 @@ jobs:
         sudo apt-get install -y libsqlite3-dev sqlite3 bzip2 libbz2-dev libssl-dev openssl libgdbm-dev libgdbm-compat-dev liblzma-dev libreadline-dev libncursesw5-dev libffi-dev uuid-dev libffi7
         sudo apt-get install -y pipewire-audio-client-libraries libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev libportmidi-dev libswscale-dev libavformat-dev libavcodec-dev zlib1g-dev
         sudo apt-get install -y openjdk-17-jdk
-        sudo apt-get install -y autoconf automake libtool pkg-config
+        sudo apt-get install -y autoconf automake libtool pkg-config wget unzip
 
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -49,12 +49,26 @@ jobs:
         android.ndk = 25b
         EOF
 
-    # PATH AND LICENSE FIX: Forces the SDK manager to auto-accept licenses via headless terminal
+    # BUG BYPASS: Pre-download and install pristine Android Command Line Tools 
+    - name: Pre-install Android SDK Tools and Accept Licenses
+      run: |
+        export ANDROID_HOME=$HOME/.buildozer/android/platform/android-sdk
+        mkdir -p "$ANDROID_HOME/cmdline-tools"
+        mkdir -p "$ANDROID_HOME/tools/bin"
+        
+        # Download stable official Android Command Line Tools
+        wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -O cmdline-tools.zip
+        unzip -q cmdline-tools.zip -d "$ANDROID_HOME/cmdline-tools"
+        mv "$ANDROID_HOME/cmdline-tools/cmdline-tools" "$ANDROID_HOME/cmdline-tools/latest"
+        
+        # Create a direct symbolic link to trick Buildozer's legacy path check
+        ln -s "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "$ANDROID_HOME/tools/bin/sdkmanager"
+        
+        # Auto-accept all the licenses right inside the pre-installed structure
+        yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_HOME" --licenses
+
     - name: Build Android APK
       run: |
         export USE_GRADLE=1
         export APP_ANDROID_ACCEPT_SDK_LICENSE="1"
-        export ANDROID_HOME=$HOME/.buildozer/android/platform/android-sdk
-        mkdir -p mkdir -p "$ANDROID_HOME/licenses"
-        echo -e "\n2k6_placeholder_or_actual_hashes_auto_handled\n"
         buildozer android debug
