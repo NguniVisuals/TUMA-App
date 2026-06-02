@@ -1,0 +1,183 @@
+import os
+import socket
+from threading import Thread
+from flask import Flask, request, render_template_string, send_from_directory, redirect
+
+# Kivy layout and user interface modules
+from kivy.app import App
+from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.button import Button
+from kivy.uix.label import Label
+from kivy.core.window import Window
+
+# Defensive check for Pyjnius (allows testing on computer without crashing)
+try:
+    from jnius import autoclass, cast
+    ANDROID_AVAILABLE = True
+except ImportError:
+    ANDROID_AVAILABLE = False
+
+# ---------------------------------------------------------
+# 1. THE FLASK BACKEND DATA ENGINE
+# ---------------------------------------------------------
+server_app = Flask(__name__)
+
+# Determine native storage destination (Defaults to Android Download directory)
+if os.name != 'nt':
+    STORAGE_DIR = "/storage/emulated/0/Download"
+else:
+    STORAGE_DIR = os.getcwd()  # Fallback to current folder on your computer
+
+server_app.config['UPLOAD_FOLDER'] = STORAGE_DIR
+
+# Clean, responsive web layout for the connecting device
+WEB_HTML_INTERFACE = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tuma - Local Hub</title>
+    <style>
+        body { font-family: -apple-system, sans-serif; background: #0f172a; color: #f8fafc; text-align: center; padding: 20px; margin: 0; }
+        .box { max-width: 450px; margin: auto; background: #1e293b; padding: 25px; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); }
+        h1 { color: #38bdf8; font-size: 32px; margin-top: 0; font-weight: 800; }
+        .upload-btn { background: #0284c7; color: white; border: none; padding: 16px; border-radius: 30px; font-size: 18px; font-weight: bold; width: 100%; cursor: pointer; transition: 0.2s; margin-bottom: 25px; }
+        .upload-btn:hover { background: #0369a1; }
+        h3 { border-bottom: 1px solid #334155; padding-bottom: 8px; text-align: left; color: #94a3b8; }
+        ul { list-style: none; padding: 0; text-align: left; margin: 0; }
+        li { background: #334155; padding: 12px; border-radius: 8px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
+        a { color: #38bdf8; text-decoration: none; word-break: break-all; font-weight: 500; font-size: 14px; }
+    </style>
+</head>
+<body>
+    <div class="box">
+        <h1>Tuma</h1>
+        <p style="color: #94a3b8; font-size: 14px;">Connected directly to phone file ecosystem.</p>
+        
+        <form action="/upload" method="post" enctype="multipart/form-data">
+            <input type="file" id="file-picker" name="file" style="display: none;" onchange="form.submit()">
+            <button type="button" class="upload-btn" onclick="document.getElementById('file-picker').click()">SEND FILE TO THIS PHONE</button>
+        </form>
+
+        <h3>Available Files on Phone</h3>
+        <ul>
+            {% for file in files %}
+            <li>
+                <a href="/download/{{ file }}">{{ file }}</a>
+            </li>
+            {% else %}
+            <li style="color: #64748b; justify-content: center;">No files found in directory.</li>
+            {% endfor %}
+        </ul>
+    </div>
+</body>
+</html>
+"""
+
+@server_app.route('/')
+def index():
+    try:
+        all_files = os.listdir(server_app.config['UPLOAD_FOLDER'])
+        files = [f for f in all_files if os.path.isfile(os.path.join(server_app.config['UPLOAD_FOLDER'], f))]
+    except Exception:
+        files = []
+    return render_template_string(WEB_HTML_INTERFACE, files=files)
+
+@server_app.route('/upload', methods=['POST'])
+def handle_upload():
+    file = request.files.get('file')
+    if file and file.filename:
+        file.save(os.path.join(server_app.config['UPLOAD_FOLDER'], file.filename))
+    return redirect('/')
+
+@server_app.route('/download/<filename>')
+def handle_download(filename):
+    return send_from_directory(server_app.config['UPLOAD_FOLDER'], filename)
+
+def run_backend():
+    server_app.run(host='0.0.0.0', port=5050, debug=False)
+
+
+# ---------------------------------------------------------
+# 2. THE KIVY MOBILE APP INTERFACE
+# ---------------------------------------------------------
+class TumaApp(App):
+    def build(self):
+        Window.clearcolor = (0.06, 0.09, 0.16, 1)
+        
+        layout = BoxLayout(orientation='vertical', padding=40, spacing=25)
+        
+        self.brand_title = Label(text="TUMA", font_size='46sp', bold=True, color=(0.22, 0.74, 0.97, 1))
+        layout.add_widget(self.brand_title)
+        
+        self.status_text = Label(
+            text="Connect devices to the same local Wi-Fi or Hotspot network to begin sharing files.", 
+            font_size='15sp', 
+            halign='center',
+            color=(0.58, 0.64, 0.73, 1)
+        )
+        self.status_text.bind(width=lambda instance, value: setattr(instance, 'text_size', (value, None)))
+        layout.add_widget(self.status_text)
+        
+        send_button = Button(
+            text="SEND", 
+            font_size='24sp', 
+            bold=True, 
+            background_normal='', 
+            background_color=(0.01, 0.52, 0.78, 1)
+        )
+        send_button.bind(on_press=self.trigger_send_sequence)
+        layout.add_widget(send_button)
+        
+        receive_button = Button(
+            text="RECEIVE", 
+            font_size='24sp', 
+            bold=True, 
+            background_normal='', 
+            background_color=(0.02, 0.65, 0.41, 1)
+        )
+        receive_button.bind(on_press=self.trigger_receive_sequence)
+        layout.add_widget(receive_button)
+        
+        return layout
+
+    def get_network_ip(self):
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+            s.close()
+            return ip
+        except Exception:
+            return "127.0.0.1"
+
+    def trigger_send_sequence(self, instance):
+        Thread(target=run_backend, daemon=True).start()
+        ip = self.get_network_ip()
+        
+        self.status_text.text = f"SENDING CONTENT!\n\nLink for the other phone:\nhttp://{ip}:5050"
+        self.status_text.color = (0.22, 0.74, 0.97, 1)
+        
+        if ANDROID_AVAILABLE:
+            try:
+                Intent = autoclass('android.content.Intent')
+                intent = Intent(Intent.ACTION_GET_CONTENT)
+                intent.setType("*/*")
+                intent.addCategory(Intent.CATEGORY_OPENABLE)
+                
+                current_activity = cast('android.app.Activity', autoclass('org.kivy.android.PythonActivity').mActivity)
+                current_activity.startActivityForResult(Intent.createChooser(intent, "Select File to Share via Tuma"), 1)
+            except Exception as e:
+                self.status_text.text = f"Native picker failed: {str(e)}"
+
+    def trigger_receive_sequence(self, instance):
+        Thread(target=run_backend, daemon=True).start()
+        ip = self.get_network_ip()
+        
+        self.status_text.text = f"READY TO RECEIVE!\n\nInstruct the sender to go to this link on their browser:\n\nhttp://{ip}:5050"
+        self.status_text.color = (0.02, 0.65, 0.41, 1)
+
+
+if __name__ == '__main__':
+    TumaApp().run()
