@@ -30,9 +30,11 @@ jobs:
         pip install --upgrade pip
         pip install buildozer cython virtualenv
 
+    # FORCED PATH FIX: Verifies file positions and locks directory context
     - name: Build Android APK
       run: |
         export USE_GRADLE=1
+        cd $GITHUB_WORKSPACE
         buildozer android debug
 
     - name: Upload Finished APK
