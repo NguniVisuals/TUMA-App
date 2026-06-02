@@ -49,9 +49,14 @@ jobs:
         android.ndk = 25b
         EOF
 
-    # CLEAN FIX: Internally forces automated compliance for the Android SDK Manager
     - name: Build Android APK
       run: |
         export USE_GRADLE=1
         export APP_ANDROID_ACCEPT_SDK_LICENSE="1"
         buildozer android debug
+
+    - name: Upload Finished APK
+      uses: actions/upload-artifact@v4
+      with:
+        name: Tuma-Android-Package
+        path: bin/*.apk
