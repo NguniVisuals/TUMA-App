@@ -49,15 +49,9 @@ jobs:
         android.ndk = 25b
         EOF
 
-    # LICENSES FIX: Automatically pipe "y" into the SDK manager to accept all terms
-    - name: Pre-accept Android SDK Licenses
-      run: |
-        mkdir -p ~/.buildozer/android/platform/android-sdk/licenses
-        echo -e "\n2k6_placeholder_or_actual_hashes_auto_handled\n"
-        # Let buildozer initialize the directory structure first if needed, 
-        # or we can pass a global configuration flag directly to buildozer:
-        
+    # CLEAN FIX: Internally forces automated compliance for the Android SDK Manager
     - name: Build Android APK
       run: |
         export USE_GRADLE=1
-        yes | buildozer android debug
+        export APP_ANDROID_ACCEPT_SDK_LICENSE="1"
+        buildozer android debug
