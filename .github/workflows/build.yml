@@ -40,10 +40,7 @@ jobs:
         source.dir = .
         source.include_exts = py,png,jpg
         version = 1.0
-        
-        # VERSION LOCK: Explicitly using stable Python 3.11 and Kivy 2.3.0
         requirements = python3==3.11.5,kivy==2.3.0,flask,jinja2,werkzeug,itsdangerous,click,setuptools
-        
         orientation = portrait
         fullscreen = 1
         android.permissions = INTERNET, READ_EXTERNAL_STORAGE, WRITE_EXTERNAL_STORAGE
@@ -65,8 +62,13 @@ jobs:
         ln -s "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "$ANDROID_HOME/tools/bin/sdkmanager"
         yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_HOME" --licenses
 
+    # ENV PURGE FIX: Clears pre-installed global NDK flags to let Buildozer use its own local NDK r25b cleanly
     - name: Build Android APK
       run: |
+        unset ANDROID_NDK
+        unset ANDROID_NDK_HOME
+        unset ANDROID_NDK_ROOT
+        unset ANDROID_NDK_LATEST_HOME
         export USE_GRADLE=1
         export APP_ANDROID_ACCEPT_SDK_LICENSE="1"
         buildozer android debug
